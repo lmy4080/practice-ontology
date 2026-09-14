@@ -2,6 +2,7 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 
 import { db } from "./db.ts";
+import { actionRoutes } from "./routes/actions.ts";
 import { metaRoutes } from "./routes/meta.ts";
 import { objectRoutes } from "./routes/objects.ts";
 
@@ -9,6 +10,7 @@ const app = new Hono();
 
 app.get("/health", (c) => c.json({ status: "ok" }));
 app.route("/api/objects", metaRoutes);
+app.route("/api/objects", actionRoutes);
 app.route("/api/objects", objectRoutes);
 
 const port = Number(process.env.PORT ?? 3000);
