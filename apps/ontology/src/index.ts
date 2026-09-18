@@ -1,6 +1,7 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 
+import "./clock.ts";
 import { db } from "./db.ts";
 import { actionRoutes } from "./routes/actions.ts";
 import { metaRoutes } from "./routes/meta.ts";
