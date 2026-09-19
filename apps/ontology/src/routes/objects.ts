@@ -51,6 +51,53 @@ async function readTable(schema: string, table: string, id?: string) {
 
 export const objectRoutes = new Hono();
 
+const QUERY_OPS = new Set(["eq", "neq", "gt", "gte", "lt", "lte", "in", "contains", "isNull", "isNotNull"]);
+
+objectRoutes.post("/:type/query", async (c) => {
+  const type = await objectType(c.req.param("type"));
+  if (!type || !validTable(type.schema, type.datasource_table)) return c.json({ error: "Unknown object type" }, 404);
+
+  let body: { filters?: unknown; limit?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Request body must be valid JSON" }, 400);
+  }
+
+  const properties = await propertiesFor(type.id);
+  const filters = body.filters ?? [];
+  if (!Array.isArray(filters)) return c.json({ error: "filters must be an array" }, 400);
+
+  let limit = body.limit ?? 100;
+  if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 1000) {
+    return c.json({ error: "limit must be an integer between 1 and 1000" }, 400);
+  }
+
+  let query = db.selectFrom(tableKey(type.schema, type.datasource_table));
+  for (const filter of filters) {
+    if (!filter || typeof filter !== "object") return c.json({ error: "Each filter must be an object" }, 400);
+    const { property, op, value } = filter as { property?: unknown; op?: unknown; value?: unknown };
+    const metadata = properties.find((candidate) => candidate.api_name === property);
+    if (!metadata || !SAFE_IDENTIFIER.test(metadata.datasource_column)) return c.json({ error: `Unknown filter property: ${String(property)}` }, 400);
+    if (typeof op !== "string" || !QUERY_OPS.has(op)) return c.json({ error: `Unknown filter operator: ${String(op)}` }, 400);
+    const column = metadata.datasource_column as never;
+    if (op === "isNull") query = query.where(column, "is", null) as typeof query;
+    else if (op === "isNotNull") query = query.where(column, "is not", null) as typeof query;
+    else if (op === "in") {
+      if (!Array.isArray(value)) return c.json({ error: "The in operator requires an array value" }, 400);
+      query = query.where(column, "in", value as never) as typeof query;
+    } else if (op === "contains") {
+      if (typeof value !== "string") return c.json({ error: "The contains operator requires a string value" }, 400);
+      query = query.where(column, "like", `%${value}%`) as typeof query;
+    } else {
+      const operator = ({ eq: "=", neq: "!=", gt: ">", gte: ">=", lt: "<", lte: "<=" } as const)[op as "eq" | "neq" | "gt" | "gte" | "lt" | "lte"];
+      query = query.where(column, operator, value as never) as typeof query;
+    }
+  }
+
+  return c.json(await query.limit(limit).execute());
+});
+
 objectRoutes.get("/:type/:id/audit", async (c) => {
   const type = await objectType(c.req.param("type"));
   if (!type) return c.json({ error: "Unknown object type" }, 404);
