@@ -1,0 +1,13 @@
+{
+  "name": "@fde/agents",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file=../../.env --watch src/index.ts"
+  },
+  "dependencies": {
+    "@openai/agents": "^0.18.0",
+    "openai": "^7.18.0"
+  }
+}
