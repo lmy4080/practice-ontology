@@ -51,6 +51,29 @@ async function readTable(schema: string, table: string, id?: string) {
 
 export const objectRoutes = new Hono();
 
+objectRoutes.get("/:type/:id/audit", async (c) => {
+  const type = await objectType(c.req.param("type"));
+  if (!type) return c.json({ error: "Unknown object type" }, 404);
+
+  const entries = await db
+    .withSchema("manufacturing")
+    .selectFrom("audit_log")
+    .innerJoin("action_type", "action_type.id", "audit_log.action_type_id")
+    .select([
+      "action_type.name as action_name",
+      "actor",
+      "params",
+      "result",
+      "created_at as timestamp",
+    ])
+    .where("target_type_api_name", "=", type.api_name)
+    .where("target_id", "=", c.req.param("id"))
+    .orderBy("created_at", "desc")
+    .execute();
+
+  return c.json(entries);
+});
+
 objectRoutes.get("/:type", async (c) => {
   const type = await objectType(c.req.param("type"));
   if (!type || !validTable(type.schema, type.datasource_table)) return c.json({ error: "Unknown object type" }, 404);

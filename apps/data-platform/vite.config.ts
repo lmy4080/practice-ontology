@@ -1,12 +1,17 @@
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    host: "127.0.0.1",
-    proxy: {
-      "/api": "http://localhost:3000",
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, "../..", "");
+  return {
+    envDir: "../..",
+    define: { "import.meta.env.VITE_COURSE_NOW": JSON.stringify(env.COURSE_NOW ?? "") },
+    plugins: [react()],
+    server: {
+      host: "127.0.0.1",
+      proxy: {
+        "/api": "http://localhost:3000",
+      },
     },
-  },
+  };
 });
