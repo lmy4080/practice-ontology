@@ -95,7 +95,7 @@ objectRoutes.post("/:type/query", async (c) => {
     }
   }
 
-  return c.json(await query.limit(limit).execute());
+  return c.json(await query.selectAll().limit(limit).execute());
 });
 
 objectRoutes.get("/:type/:id/audit", async (c) => {
