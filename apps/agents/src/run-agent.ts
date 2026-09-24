@@ -3,7 +3,7 @@ import { createServer, type ServerResponse } from "node:http";
 import { fileURLToPath } from "node:url";
 import { Codex, type ThreadEvent, type ThreadItem, type Usage } from "@openai/codex-sdk";
 import { LangfuseSpanProcessor } from "@langfuse/otel";
-import { context, SpanStatusCode, trace } from "@opentelemetry/api";
+import { context, SpanStatusCode, trace, type Context, type Span, type Tracer } from "@opentelemetry/api";
 import { NodeSDK } from "@opentelemetry/sdk-node";
 import { buildSchemaBlock } from "./helpers/buildSchemaBlock.ts";
 
@@ -24,7 +24,7 @@ export type RunAgentOptions = {
   sandboxMode?: "read-only" | "workspace-write" | "danger-full-access";
 };
 
-export type OntologyTool = "query_objects" | "get_object";
+export type OntologyTool = "query_objects" | "get_object" | "batch_defer_start" | "tank_schedule_maintenance";
 
 export type RunAgentInput = {
   identity: string;
@@ -66,10 +66,10 @@ function startTelemetry() {
 }
 
 const html = `<!doctype html>
-<html><head><meta charset="utf-8"><title>Ontology Agent</title>
+<html><head><meta charset="utf-8"><title>온톨로지 에이전트</title>
 <style>body{font:15px system-ui;margin:0;background:#101114;color:#eee}main{max-width:960px;margin:auto;padding:24px}h1{font-size:22px}.event{border:1px solid #30333b;border-radius:10px;padding:12px;margin:10px 0;background:#17191f}.label{color:#8db8ff;font-weight:700}.muted{color:#9da3ad}pre{white-space:pre-wrap;overflow:auto;margin:8px 0 0}</style></head>
-<body><main><h1>Ontology Agent</h1><div id="status" class="muted">Waiting for events…</div><section id="events"></section></main>
-<script>const events=document.querySelector('#events'),status=document.querySelector('#status');const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));const stream=new EventSource('/events');stream.onopen=()=>{status.textContent='Live';};stream.onmessage=e=>{const x=JSON.parse(e.data);status.textContent=x.kind==='final'?'Completed':x.kind;const el=document.createElement('article');el.className='event';el.innerHTML='<div class="label">'+esc(x.kind)+'</div><pre>'+esc(JSON.stringify(x.value,null,2))+'</pre>';events.append(el)};stream.onerror=()=>{status.textContent='Disconnected';stream.close();};</script></body></html>`;
+<body><main><h1>온톨로지 에이전트</h1><div id="status" class="muted">이벤트 대기 중…</div><section id="events"></section></main>
+<script>const events=document.querySelector('#events'),status=document.querySelector('#status');const labels={connected:'연결됨',tool_call:'도구 호출',tool_result:'도구 결과',assistant_text:'에이전트 응답',turn_completed:'턴 완료',final:'완료',error:'오류',item_started:'항목 시작',item_completed:'항목 완료'};const label=k=>labels[k]??k;const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));const stream=new EventSource('/events');stream.onopen=()=>{status.textContent='연결됨';};stream.onmessage=e=>{const x=JSON.parse(e.data);status.textContent=label(x.kind);const el=document.createElement('article');el.className='event';el.innerHTML='<div class="label">'+esc(label(x.kind))+'</div><pre>'+esc(JSON.stringify(x.value,null,2))+'</pre>';events.append(el)};stream.onerror=()=>{status.textContent='연결 끊김';stream.close();};</script></body></html>`;
 
 function startWebServer() {
   eventHistory.length = 0;
@@ -106,10 +106,41 @@ function publish(kind: string, value: unknown) {
   for (const client of clients) client.write(message);
 }
 
-function publishEvent(event: ThreadEvent) {
+type EventTracing = {
+  parentContext: Context;
+  tracer: Tracer;
+  toolSpans: Map<string, Span>;
+};
+
+function publishEvent(event: ThreadEvent, tracing: EventTracing) {
   if (event.type === "item.started" || event.type === "item.updated" || event.type === "item.completed") {
     const item = event.item as ThreadItem;
-    if (item.type === "mcp_tool_call") publish(item.status === "in_progress" ? "tool_call" : "tool_result", item);
+    if (item.type === "mcp_tool_call") {
+      let toolSpan = tracing.toolSpans.get(item.id);
+      if (!toolSpan && item.status === "in_progress") {
+        toolSpan = tracing.tracer.startSpan(`mcp__${item.server}__${item.tool}`, {
+          attributes: {
+            "langfuse.observation.input": JSON.stringify(item.arguments),
+            "mcp.server": item.server,
+            "mcp.tool": item.tool,
+          },
+        }, tracing.parentContext);
+        tracing.toolSpans.set(item.id, toolSpan);
+      }
+      if (toolSpan && item.status !== "in_progress") {
+        toolSpan.setAttribute("langfuse.observation.output", JSON.stringify(item.result ?? item.error ?? null));
+        if (item.status === "failed") {
+          const message = item.error?.message ?? "MCP tool call failed";
+          toolSpan.recordException(new Error(message));
+          toolSpan.setStatus({ code: SpanStatusCode.ERROR, message });
+        } else {
+          toolSpan.setStatus({ code: SpanStatusCode.OK });
+        }
+        toolSpan.end();
+        tracing.toolSpans.delete(item.id);
+      }
+      publish(item.status === "in_progress" ? "tool_call" : "tool_result", item);
+    }
     else if (item.type === "agent_message") publish("assistant_text", item.text);
     else publish(item.type, item);
   } else if (event.type === "turn.completed") publish("turn_completed", event.usage);
@@ -159,10 +190,18 @@ export async function runAgent({ identity, prompt, tools, systemPrompt, options 
   const restoreFetch = installOntologyFetchInterceptor(identity);
   const sdk = startTelemetry();
   const tracer = trace.getTracer("fde-agents");
-  const span = tracer.startSpan(identity, { attributes: { "langfuse.trace.name": identity, "langfuse.user.id": identity } });
+  const span = tracer.startSpan(identity, {
+    attributes: {
+      "langfuse.trace.name": identity,
+      "langfuse.user.id": identity,
+      "langfuse.observation.input": JSON.stringify({ prompt, tools }),
+    },
+  });
+  const parentContext = trace.setSpan(context.active(), span);
+  const toolSpans = new Map<string, Span>();
 
   try {
-    const schema = await context.with(trace.setSpan(context.active(), span), () => buildSchemaBlock());
+    const schema = await context.with(parentContext, () => buildSchemaBlock());
     const codex = new Codex({
       config: {
         mcp_servers: {
@@ -186,17 +225,18 @@ export async function runAgent({ identity, prompt, tools, systemPrompt, options 
       approvalPolicy: "never",
     });
 
-    const { events } = await context.with(trace.setSpan(context.active(), span), () =>
+    const { events } = await context.with(parentContext, () =>
       thread.runStreamed(promptWithContext(prompt, schema, allowedTools, systemPrompt)),
     );
     let finalResponse = "";
     let usage: Usage | null = null;
     for await (const event of events) {
-      publishEvent(event);
+      publishEvent(event, { parentContext, tracer, toolSpans });
       renderToConsole(event);
       if (event.type === "item.completed" && event.item.type === "agent_message") finalResponse = event.item.text;
       if (event.type === "turn.completed") usage = event.usage;
     }
+    span.setAttribute("langfuse.observation.output", JSON.stringify({ text: finalResponse, usage }));
     span.setStatus({ code: SpanStatusCode.OK });
     publish("final", { text: finalResponse, usage, threadId: thread.id });
     return { finalResponse, usage, threadId: thread.id };
@@ -206,6 +246,7 @@ export async function runAgent({ identity, prompt, tools, systemPrompt, options 
     publish("error", { message: String(error) });
     throw error;
   } finally {
+    for (const toolSpan of toolSpans.values()) toolSpan.end();
     span.end();
     restoreFetch();
     await new Promise<void>((resolve) => setTimeout(resolve, DASHBOARD_GRACE_MS));
