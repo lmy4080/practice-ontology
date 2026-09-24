@@ -62,7 +62,7 @@ interface AuditLogTable {
   created_at: Date;
 }
 
-interface TankTable {
+export interface TankTable {
   id: string;
   name: string;
   capacity: string;
@@ -107,7 +107,8 @@ interface MaintenanceLogTable {
   target_id: string;
   type: string;
   status: string;
-  started_at: Date;
+  planned_at: Date | null;
+  started_at: Date | null;
   completed_at: Date | null;
   notes: string | null;
 }
