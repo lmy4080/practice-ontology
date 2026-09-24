@@ -9,3 +9,4 @@
 - Neon project name: `fastcampus-ontology` (sweet-recipe-60493604)
 - When adding variables to .env, use `echo 'KEY=VALUE' >> .env` rather than editing the file. Editing exposes existing secrets in the diff and sends them through tool calls.
 - The ontology server's clock is anchored to the system-level override date `COURSE_NOW`. The process's current time starts at the course's narrative date and advances from there.
+- Whenever the Claude Code SDK would normally be used, use the OpenAI SDK instead and adapt the implementation to our project's architecture and requirements.

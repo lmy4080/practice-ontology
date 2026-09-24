@@ -1,4 +1,4 @@
-import { queryObjects, type QueryObjectsInput } from "./queryObjects.ts";
+import { getObject, queryObjects, type GetObjectInput, type QueryObjectsInput } from "./queryObjects.ts";
 import { createInterface } from "node:readline";
 
 const tool = {
@@ -28,6 +28,20 @@ const tool = {
   },
 };
 
+const getObjectTool = {
+  name: "get_object",
+  description: "Get one ontology object by type and ID.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      type: { type: "string", description: "The Object type API name, such as Batch." },
+      id: { type: "string", description: "The object ID, such as B-2105." },
+    },
+    required: ["type", "id"],
+    additionalProperties: false,
+  },
+};
+
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 
 for await (const line of input) {
@@ -43,10 +57,12 @@ for await (const line of input) {
       serverInfo: { name: "fde-ontology", version: "1.0.0" },
     };
   } else if (request.method === "tools/list") {
-    result = { tools: [tool] };
-  } else if (request.method === "tools/call" && request.params?.name === tool.name) {
+    result = { tools: [tool, getObjectTool] };
+  } else if (request.method === "tools/call" && [tool.name, getObjectTool.name].includes(request.params?.name)) {
     try {
-      const text = await queryObjects(request.params.arguments as QueryObjectsInput);
+      const text = request.params.name === tool.name
+        ? await queryObjects(request.params.arguments as QueryObjectsInput)
+        : await getObject(request.params.arguments as GetObjectInput);
       result = { content: [{ type: "text", text }] };
     } catch (error) {
       result = { content: [{ type: "text", text: String(error) }], isError: true };

@@ -10,6 +10,11 @@ export type QueryObjectsInput = {
   limit?: number;
 };
 
+export type GetObjectInput = {
+  type: string;
+  id: string;
+};
+
 export async function queryObjects({ type, filters, limit }: QueryObjectsInput) {
   const honoUrl = process.env.HONO_URL ?? "http://localhost:3000";
   const response = await fetch(`${honoUrl}/api/objects/${encodeURIComponent(type)}/query`, {
@@ -17,6 +22,14 @@ export async function queryObjects({ type, filters, limit }: QueryObjectsInput) 
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ filters, limit }),
   });
+  const body = await response.text();
+  if (!response.ok) throw new Error(`${response.status}: ${body.slice(0, 200)}`);
+  return body;
+}
+
+export async function getObject({ type, id }: GetObjectInput) {
+  const ontologyUrl = process.env.ONTOLOGY_URL ?? "http://localhost:3000";
+  const response = await fetch(`${ontologyUrl}/api/objects/${encodeURIComponent(type)}/${encodeURIComponent(id)}`);
   const body = await response.text();
   if (!response.ok) throw new Error(`${response.status}: ${body.slice(0, 200)}`);
   return body;

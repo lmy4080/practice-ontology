@@ -4,6 +4,9 @@ import { Codex, type ThreadEvent, type ThreadItem, type Usage } from "@openai/co
 import { LangfuseSpanProcessor } from "@langfuse/otel";
 import { context, SpanStatusCode, trace } from "@opentelemetry/api";
 import { NodeSDK } from "@opentelemetry/sdk-node";
+import { buildSchemaBlock } from "./helpers/buildSchemaBlock.ts";
+
+export { buildSchemaBlock };
 
 const PORT = 3455;
 const ontologyUrl = (process.env.ONTOLOGY_URL ?? "http://localhost:3000").replace(/\/$/, "");
@@ -17,49 +20,18 @@ export type RunAgentOptions = {
   sandboxMode?: "read-only" | "workspace-write" | "danger-full-access";
 };
 
+export type OntologyTool = "query_objects" | "get_object";
+
 export type RunAgentInput = {
   identity: string;
   prompt: string;
+  tools: OntologyTool[];
+  systemPrompt?: string;
   options?: RunAgentOptions;
-};
-
-type SchemaType = {
-  api_name: string;
-  name?: string | null;
-  description?: string | null;
-  datasource_table?: string;
-  properties?: Array<{ api_name: string; name?: string | null; data_type?: string | null; description?: string | null }>;
-  links?: { outbound?: Array<{ api_name: string; target_type_id?: string; cardinality?: string }>; inbound?: Array<{ api_name: string; source_type_id?: string; cardinality?: string }> };
 };
 
 function json(value: unknown) {
   return JSON.stringify(value, null, 2);
-}
-
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
-  return response.json() as Promise<T>;
-}
-
-export async function buildSchemaBlock(): Promise<string> {
-  const types = await fetchJson<Array<{ api_name: string }>>(`${ontologyUrl}/api/objects/meta/types`);
-  const details = await Promise.all(types.map((type) =>
-    fetchJson<SchemaType>(`${ontologyUrl}/api/objects/meta/types/${encodeURIComponent(type.api_name)}`),
-  ));
-
-  return [
-    "## Ontology schema",
-    "Use the API names and property names below when calling the ontology tools.",
-    ...details.map((type) => [
-      `### ${type.api_name}${type.name ? ` (${type.name})` : ""}`,
-      type.description ? type.description : "",
-      type.datasource_table ? `table: ${type.datasource_table}` : "",
-      `properties: ${(type.properties ?? []).map((property) => `${property.api_name}${property.data_type ? `: ${property.data_type}` : ""}`).join(", ") || "none"}`,
-      `outbound links: ${(type.links?.outbound ?? []).map((link) => `${link.api_name} (${link.cardinality ?? "unknown"})`).join(", ") || "none"}`,
-      `inbound links: ${(type.links?.inbound ?? []).map((link) => `${link.api_name} (${link.cardinality ?? "unknown"})`).join(", ") || "none"}`,
-    ].filter(Boolean).join("\n")),
-  ].join("\n\n");
 }
 
 function installOntologyFetchInterceptor(identity: string) {
@@ -127,20 +99,25 @@ function publishEvent(event: ThreadEvent) {
   else publish(event.type, event);
 }
 
-function promptWithContext(prompt: string, schema: string) {
+function promptWithContext(prompt: string, schema: string, allowedTools: string[], systemPrompt?: string) {
   const courseNow = process.env.COURSE_NOW ?? "not set";
   return [
+    "<ontology-schema>",
+    schema,
+    "</ontology-schema>",
+    systemPrompt,
     `COURSE_NOW override date: ${courseNow}`,
     "Treat COURSE_NOW as the date for all time-relative reasoning about ontology data.",
-    "You may use only the ontology MCP tools query_objects and get_object.",
+    `You may use only these ontology MCP tools: ${allowedTools.join(", ")}.`,
     "Do not use Bash, shell, file-read, web, or any other tool or MCP server.",
-    schema,
     "## User request",
     prompt,
   ].join("\n\n");
 }
 
-export async function runAgent({ identity, prompt, options = {} }: RunAgentInput) {
+export async function runAgent({ identity, prompt, tools, systemPrompt, options = {} }: RunAgentInput) {
+  if (!tools.length) throw new Error("At least one ontology tool is required.");
+  const allowedTools = tools.map((tool) => `mcp__ontology__${tool}`);
   const server = startWebServer();
   const restoreFetch = installOntologyFetchInterceptor(identity);
   const sdk = startTelemetry();
@@ -160,7 +137,7 @@ export async function runAgent({ identity, prompt, options = {} }: RunAgentInput
         mcp_servers: {
           ontology: {
             enabled: true,
-            enabled_tools: ["query_objects", "get_object"],
+            enabled_tools: tools,
             default_tools_approval_mode: "auto",
             command: process.execPath,
             args: ["--experimental-strip-types", mcpServer],
@@ -172,7 +149,7 @@ export async function runAgent({ identity, prompt, options = {} }: RunAgentInput
     });
 
     const { events } = await context.with(trace.setSpan(context.active(), span), () =>
-      thread.runStreamed(promptWithContext(prompt, schema)),
+      thread.runStreamed(promptWithContext(prompt, schema, allowedTools, systemPrompt)),
     );
     let finalResponse = "";
     let usage: Usage | null = null;
