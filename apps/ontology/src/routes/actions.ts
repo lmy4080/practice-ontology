@@ -2,6 +2,7 @@ import { Validator, type Schema } from "@cfworker/json-schema";
 import { Hono } from "hono";
 
 import { batchDeferStart, type ActionContext } from "../actions/manufacturing/batchDeferStart.ts";
+import { batchCancel } from "../actions/manufacturing/batchCancel.ts";
 import { tankScheduleMaintenance } from "../actions/manufacturing/tankScheduleMaintenance.ts";
 import { db, type Database } from "../db.ts";
 
@@ -11,6 +12,8 @@ const SAFE_IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
 type ActionHandler = (instance: unknown, params: unknown | undefined, context: ActionContext) => Promise<unknown>;
 
 const handlers: Record<string, ActionHandler> = {
+  "batch.cancel": (instance, params, context) =>
+    batchCancel(instance as Database["manufacturing.batch"], params as { reason: string }, context),
   "batch.deferStart": (instance, params, context) =>
     batchDeferStart(instance as Database["manufacturing.batch"], params as { newPlannedStart: string }, context),
   "tank.scheduleMaintenance": (instance, params, context) =>

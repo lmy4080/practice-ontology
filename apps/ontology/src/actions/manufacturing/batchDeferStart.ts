@@ -5,6 +5,7 @@ import type { ActionTypeTable, BatchTable, Database, ObjectTypeTable } from "../
 export interface ActionContext {
   db: Kysely<Database>;
   actor: string;
+  callerIdentity?: string;
   objectType: ObjectTypeTable;
   actionType: ActionTypeTable;
 }
@@ -40,7 +41,7 @@ export async function batchDeferStart(
         target_type_id: context.objectType.id,
         target_type_api_name: context.objectType.api_name,
         target_id: batch.id,
-        actor: context.actor,
+        actor: context.callerIdentity ?? "system",
         params,
         result: updated,
       })
