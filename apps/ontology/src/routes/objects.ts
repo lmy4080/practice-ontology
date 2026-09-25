@@ -9,6 +9,15 @@ function validTable(schema: string, table: string) {
   return INSTANCE_SCHEMAS.has(schema) && SAFE_IDENTIFIER.test(table);
 }
 
+function validCreateValue(dataType: string, value: unknown) {
+  if (value === null) return true;
+  if (dataType === "string" || dataType === "enum" || dataType === "datetime" || dataType === "date") return typeof value === "string";
+  if (dataType === "number") return typeof value === "number" && Number.isFinite(value);
+  if (dataType === "boolean") return typeof value === "boolean";
+  if (dataType === "string[]") return Array.isArray(value) && value.every((item) => typeof item === "string");
+  return true;
+}
+
 function tableKey(schema: string, table: string) {
   return `${schema}.${table}` as keyof Database;
 }
@@ -52,6 +61,45 @@ async function readTable(schema: string, table: string, id?: string) {
 export const objectRoutes = new Hono();
 
 const QUERY_OPS = new Set(["eq", "neq", "gt", "gte", "lt", "lte", "in", "contains", "isNull", "isNotNull"]);
+
+objectRoutes.post("/:type", async (c) => {
+  const type = await objectType(c.req.param("type"));
+  if (!type || !validTable(type.schema, type.datasource_table)) return c.json({ error: "Unknown object type" }, 404);
+
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Request body must be valid JSON" }, 400);
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return c.json({ error: "Request body must be an object" }, 400);
+
+  const properties = await propertiesFor(type.id);
+  const propertyByApiName = new Map(properties.map((property) => [property.api_name, property]));
+  const values: Record<string, unknown> = {};
+  for (const [apiName, value] of Object.entries(body)) {
+    const property = propertyByApiName.get(apiName);
+    if (!property || !SAFE_IDENTIFIER.test(property.datasource_column)) return c.json({ error: `Unknown property: ${apiName}` }, 400);
+    if (!validCreateValue(property.data_type, value)) return c.json({ error: `Invalid value for property: ${apiName}` }, 400);
+    values[property.datasource_column] = value;
+  }
+
+  for (const property of properties) {
+    if (property.required && !property.is_primary_key && !(property.api_name in body)) {
+      return c.json({ error: `Missing required property: ${property.api_name}` }, 400);
+    }
+  }
+
+  try {
+    return c.json(await db
+      .insertInto(tableKey(type.schema, type.datasource_table))
+      .values(values as never)
+      .returningAll()
+      .executeTakeFirstOrThrow());
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "Failed to create object" }, 400);
+  }
+});
 
 objectRoutes.post("/:type/query", async (c) => {
   const type = await objectType(c.req.param("type"));

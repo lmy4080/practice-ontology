@@ -22,6 +22,11 @@ export type InvokeActionInput = {
   params: Record<string, unknown>;
 };
 
+export type CreateObjectInput = {
+  type: string;
+  properties: Record<string, unknown>;
+};
+
 export async function queryObjects({ type, filters, limit }: QueryObjectsInput) {
   const honoUrl = process.env.HONO_URL ?? "http://localhost:3000";
   const response = await fetch(`${honoUrl}/api/objects/${encodeURIComponent(type)}/query`, {
@@ -52,4 +57,16 @@ export async function invokeAction({ type, id, action, params }: InvokeActionInp
   const body = await response.text();
   if (!response.ok) throw new Error(`${response.status}: ${body.slice(0, 200)}`);
   return body;
+}
+
+export async function createObject({ type, properties }: CreateObjectInput) {
+  const ontologyUrl = process.env.ONTOLOGY_URL ?? "http://localhost:3000";
+  const response = await fetch(`${ontologyUrl}/api/objects/${encodeURIComponent(type)}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(properties),
+  });
+  const body = await response.text();
+  if (!response.ok) throw new Error(`${response.status}: ${body.slice(0, 200)}`);
+  return JSON.parse(body) as Record<string, unknown>;
 }

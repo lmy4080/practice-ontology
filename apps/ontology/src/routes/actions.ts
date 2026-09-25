@@ -63,7 +63,7 @@ actionRoutes.post("/:type/:id/actions/:actionName", async (c) => {
     const result = await handler(instance, params, {
       db,
       actor: c.req.header("x-actor") ?? "system",
-      callerIdentity: c.req.header("x-actor") ?? "system",
+      callerIdentity: c.req.header("x-caller-identity") ?? c.req.header("x-actor") ?? "system",
       objectType: type,
       actionType: action,
     });
