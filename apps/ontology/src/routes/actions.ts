@@ -1,24 +1,14 @@
 import { Validator, type Schema } from "@cfworker/json-schema";
 import { Hono } from "hono";
 
-import { batchDeferStart, type ActionContext } from "../actions/manufacturing/batchDeferStart.ts";
-import { batchCancel } from "../actions/manufacturing/batchCancel.ts";
-import { tankScheduleMaintenance } from "../actions/manufacturing/tankScheduleMaintenance.ts";
+import { type ActionContext } from "../actions/manufacturing/batchDeferStart.ts";
+import { actionHandlers } from "../schema.ts";
 import { db, type Database } from "../db.ts";
 
 const INSTANCE_SCHEMAS = new Set(["manufacturing"]);
 const SAFE_IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
 
 type ActionHandler = (instance: unknown, params: unknown | undefined, context: ActionContext) => Promise<unknown>;
-
-const handlers: Record<string, ActionHandler> = {
-  "batch.cancel": (instance, params, context) =>
-    batchCancel(instance as Database["manufacturing.batch"], params as { reason: string }, context),
-  "batch.deferStart": (instance, params, context) =>
-    batchDeferStart(instance as Database["manufacturing.batch"], params as { newPlannedStart: string }, context),
-  "tank.scheduleMaintenance": (instance, params, context) =>
-    tankScheduleMaintenance(instance as Database["manufacturing.tank"], params as { type: string; plannedAt: string; notes: string }, context),
-};
 
 function tableKey(schema: string, table: string) {
   return `${schema}.${table}` as keyof Database;
@@ -49,7 +39,7 @@ actionRoutes.post("/:type/:id/actions/:actionName", async (c) => {
   if (!action) return c.json({ error: "Unknown action" }, 404);
 
   const shortActionName = action.api_name.split(".").pop() ?? action.api_name;
-  const handler = handlers[`${type.api_name}.${shortActionName}`];
+  const handler = actionHandlers[`${type.api_name}.${shortActionName}`];
   if (!handler) return c.json({ error: "Action is not implemented" }, 501);
 
   let params: unknown;
@@ -73,6 +63,7 @@ actionRoutes.post("/:type/:id/actions/:actionName", async (c) => {
     const result = await handler(instance, params, {
       db,
       actor: c.req.header("x-actor") ?? "system",
+      callerIdentity: c.req.header("x-actor") ?? "system",
       objectType: type,
       actionType: action,
     });

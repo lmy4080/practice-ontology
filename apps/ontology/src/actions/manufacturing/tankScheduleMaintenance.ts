@@ -1,5 +1,5 @@
 import type { TankTable } from "../../db.ts";
-import type { ActionContext } from "./batchDeferStart.ts";
+import { actionTransaction, type ActionContext } from "./batchDeferStart.ts";
 
 const maintenanceTypes = new Set(["inspection", "preventive", "corrective", "cleaning"]);
 
@@ -12,7 +12,7 @@ export async function tankScheduleMaintenance(
   if (!maintenanceTypes.has(params.type)) throw new Error("type must be a valid maintenance type.");
   if (!Number.isFinite(plannedAt.getTime())) throw new Error("plannedAt must be a valid date.");
 
-  return context.db.transaction().execute(async (trx) => {
+  return actionTransaction(context, async (trx) => {
     const fermentingBatch = await trx
       .selectFrom("manufacturing.batch")
       .select("id")
@@ -58,6 +58,8 @@ export async function tankScheduleMaintenance(
         actor: context.actor,
         params,
         result,
+        ...(context.authorizedByProposal ? { authorized_by_proposal: context.authorizedByProposal } : {}),
+        ...(context.authorizedByProposal ? { authorized_by_proposal: context.authorizedByProposal } : {}),
       })
       .execute();
 

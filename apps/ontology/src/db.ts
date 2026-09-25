@@ -59,7 +59,22 @@ interface AuditLogTable {
   actor: string;
   params: Json;
   result: Json;
+  authorized_by_proposal: string | null;
   created_at: Date;
+}
+
+export interface ProposalTable {
+  id: number;
+  type: string;
+  target_id: string;
+  params: Json;
+  rationale: string;
+  status: string;
+  proposed_by: string;
+  proposed_at: Date;
+  reviewed_by: string | null;
+  reviewed_at: Date | null;
+  decision_note: string | null;
 }
 
 export interface TankTable {
@@ -145,6 +160,7 @@ export interface Database {
   link: LinkTable;
   action_type: ActionTypeTable;
   audit_log: AuditLogTable;
+  "manufacturing.proposal": ProposalTable;
   "manufacturing.tank": TankTable;
   "manufacturing.line": LineTable;
   "manufacturing.batch": BatchTable;

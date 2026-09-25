@@ -8,6 +8,13 @@ export interface ActionContext {
   callerIdentity?: string;
   objectType: ObjectTypeTable;
   actionType: ActionTypeTable;
+  authorizedByProposal?: string;
+}
+
+export function actionTransaction<T>(context: ActionContext, callback: (db: Kysely<Database>) => Promise<T>) {
+  return context.db.isTransaction
+    ? callback(context.db)
+    : context.db.transaction().execute((trx) => callback(trx as unknown as Kysely<Database>));
 }
 
 export async function batchDeferStart(
@@ -23,7 +30,7 @@ export async function batchDeferStart(
     throw new Error("newPlannedStart must be a valid date in the future.");
   }
 
-  return context.db.transaction().execute(async (trx) => {
+  return actionTransaction(context, async (trx) => {
     const updated = await trx
       .updateTable("manufacturing.batch")
       .set({ planned_start: plannedStart })
@@ -44,6 +51,7 @@ export async function batchDeferStart(
         actor: context.callerIdentity ?? "system",
         params,
         result: updated,
+        ...(context.authorizedByProposal ? { authorized_by_proposal: context.authorizedByProposal } : {}),
       })
       .execute();
 

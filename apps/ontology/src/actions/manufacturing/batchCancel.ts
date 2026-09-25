@@ -1,5 +1,5 @@
 import type { BatchTable } from "../../db.ts";
-import type { ActionContext } from "./batchDeferStart.ts";
+import { actionTransaction, type ActionContext } from "./batchDeferStart.ts";
 
 export async function batchCancel(
   batch: BatchTable,
@@ -10,7 +10,7 @@ export async function batchCancel(
     throw new Error(`Batch ${batch.id} cannot be cancelled while status is ${batch.status}; it must be queued or fermenting.`);
   }
 
-  return context.db.transaction().execute(async (trx) => {
+  return actionTransaction(context, async (trx) => {
     const updated = await trx
       .updateTable("manufacturing.batch")
       .set({ status: "cancelled" })
@@ -31,6 +31,7 @@ export async function batchCancel(
         actor: context.actor,
         params,
         result: updated,
+        ...(context.authorizedByProposal ? { authorized_by_proposal: context.authorizedByProposal } : {}),
       })
       .execute();
 
