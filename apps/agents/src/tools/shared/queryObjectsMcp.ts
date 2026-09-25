@@ -1,4 +1,4 @@
-import { getObject, invokeAction, queryObjects, type GetObjectInput, type QueryObjectsInput } from "./queryObjects.ts";
+import { createObject, getObject, invokeAction, queryObjects, type CreateObjectInput, type GetObjectInput, type QueryObjectsInput } from "./queryObjects.ts";
 import { createInterface } from "node:readline";
 
 const tool = {
@@ -72,7 +72,37 @@ const tankScheduleMaintenanceTool = {
   },
 };
 
-const tools = [tool, getObjectTool, batchDeferStartTool, tankScheduleMaintenanceTool];
+const proposeBatchCancelTool = {
+  name: "propose_batch_cancel",
+  description: "Propose cancelling a batch for human approval.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      batch_id: { type: "string" },
+      reason: { type: "string" },
+      rationale: { type: "string" },
+    },
+    required: ["batch_id", "reason", "rationale"],
+    additionalProperties: false,
+  },
+};
+
+const proposeBatchDeferStartTool = {
+  name: "propose_batch_defer_start",
+  description: "Propose deferring a batch's planned start time for human approval.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      batch_id: { type: "string" },
+      new_planned_start: { type: "string", format: "date-time" },
+      rationale: { type: "string" },
+    },
+    required: ["batch_id", "new_planned_start", "rationale"],
+    additionalProperties: false,
+  },
+};
+
+const tools = [tool, getObjectTool, batchDeferStartTool, tankScheduleMaintenanceTool, proposeBatchCancelTool, proposeBatchDeferStartTool];
 
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 
@@ -103,7 +133,33 @@ for await (const line of input) {
                 action: "deferStart",
                 params: { newPlannedStart: (request.params.arguments as { newPlannedStart: string }).newPlannedStart },
               })
-            : await invokeAction({
+            : request.params.name === proposeBatchCancelTool.name
+              ? String((await createObject({
+                  type: "proposal",
+                  properties: {
+                    type: "batch.cancel",
+                    targetId: (request.params.arguments as { batch_id: string }).batch_id,
+                    params: { reason: (request.params.arguments as { reason: string }).reason },
+                    rationale: (request.params.arguments as { rationale: string }).rationale,
+                    status: "pending",
+                    proposedBy: "ingredient-delivery-disruption-agent",
+                    proposedAt: new Date(process.env.COURSE_NOW ?? Date.now()).toISOString(),
+                  },
+                } as CreateObjectInput)).id)
+              : request.params.name === proposeBatchDeferStartTool.name
+                ? String((await createObject({
+                    type: "proposal",
+                    properties: {
+                      type: "batch.deferStart",
+                      targetId: (request.params.arguments as { batch_id: string }).batch_id,
+                      params: { newPlannedStart: (request.params.arguments as { new_planned_start: string }).new_planned_start },
+                      rationale: (request.params.arguments as { rationale: string }).rationale,
+                      status: "pending",
+                      proposedBy: "ingredient-delivery-disruption-agent",
+                      proposedAt: new Date(process.env.COURSE_NOW ?? Date.now()).toISOString(),
+                    },
+                  } as CreateObjectInput)).id)
+                : await invokeAction({
                 type: "tank",
                 id: (request.params.arguments as { tankId: string }).tankId,
                 action: "scheduleMaintenance",
