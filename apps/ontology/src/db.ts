@@ -1,7 +1,7 @@
 import { Kysely, PostgresDialect, type Generated } from "kysely";
 import { Pool } from "pg";
 
-export const ACTIVE_ONTOLOGY_SCHEMA = "manufacturing" as const;
+export const ACTIVE_ONTOLOGY_SCHEMA = "insurance" as const;
 export const INSTANCE_SCHEMAS = new Set([ACTIVE_ONTOLOGY_SCHEMA]);
 
 type Json = unknown;
@@ -78,6 +78,52 @@ export interface ProposalTable {
   reviewed_by: string | null;
   reviewed_at: Date | null;
   decision_note: string | null;
+}
+
+export interface ClaimTable {
+  id: string;
+  claim_number: string;
+  policy_id: string | null;
+  customer_id: string | null;
+  incident_date: string | null;
+  filed_date: string | null;
+  claim_type: string | null;
+  amount_claimed: string | null;
+  status: string;
+  narrative: string | null;
+  documents_complete: boolean | null;
+}
+
+export interface PolicyTable {
+  id: string;
+  policy_number: string;
+  customer_id: string | null;
+  template_id: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  premium: string | null;
+  status: string;
+  driver_scope: string | null;
+  reporting_window_days: number | null;
+}
+
+export interface CoverageClauseTable {
+  id: string;
+  policy_template_id: string | null;
+  policy_id: string | null;
+  effect: string;
+  category: string | null;
+  text: string | null;
+  overrides_clause_id: string | null;
+  limit_amount: string | null;
+  deductible_amount: string | null;
+}
+
+export interface DataIssueTable {
+  id: string;
+  claim_id: string;
+  reason: string;
+  status: string;
 }
 
 export interface TankTable {
@@ -174,6 +220,11 @@ export interface Database {
   link: LinkTable;
   action_type: ActionTypeTable;
   audit_log: AuditLogTable;
+  "insurance.claim": ClaimTable;
+  "insurance.policy": PolicyTable;
+  "insurance.coverage_clause": CoverageClauseTable;
+  "insurance.data_issue": DataIssueTable;
+  "insurance.proposal": ProposalTable;
   "manufacturing.proposal": ProposalTable;
   "manufacturing.tank": TankTable;
   "manufacturing.line": LineTable;
