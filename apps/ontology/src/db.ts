@@ -107,6 +107,17 @@ export interface BatchTable {
   last_operator_note: string | null;
 }
 
+export interface FlagLogTable {
+  id: string;
+  batch_id: string;
+  reason: string;
+  severity: string;
+  status: string;
+  flagged_by: string;
+  flagged_at: Date;
+  resolved_at: Date | null;
+}
+
 interface BottlingRunTable {
   id: string;
   batch_id: string;
@@ -164,6 +175,7 @@ export interface Database {
   "manufacturing.tank": TankTable;
   "manufacturing.line": LineTable;
   "manufacturing.batch": BatchTable;
+  "manufacturing.flag_log": FlagLogTable;
   "manufacturing.bottling_run": BottlingRunTable;
   "manufacturing.maintenance_log": MaintenanceLogTable;
   "manufacturing.operator": OperatorTable;
