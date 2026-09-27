@@ -71,6 +71,39 @@ const batchFlagTool = {
   },
 };
 
+const claimAutoApproveTool = {
+  name: "claim_auto_approve",
+  description: "Auto-approve a filed insurance claim when its policy, timing, documents, and cited coverage limit validate.",
+  inputSchema: {
+    type: "object",
+    properties: { claimId: { type: "string" }, reason: { type: "string", minLength: 1 }, citedClauseIds: { type: "array", items: { type: "string" }, minItems: 1 }, approvedAmount: { type: "number", exclusiveMinimum: 0 } },
+    required: ["claimId", "reason", "citedClauseIds", "approvedAmount"],
+    additionalProperties: false,
+  },
+};
+
+const proposeClaimRequestMoreInfoTool = {
+  name: "propose_claim_request_more_info",
+  description: "Create a human-review Proposal to request more information for an insurance claim.",
+  inputSchema: {
+    type: "object",
+    properties: { claim_id: { type: "string" }, reason: { type: "string", minLength: 1 }, requested_info: { type: "string", minLength: 1 }, rationale: { type: "string", minLength: 1 } },
+    required: ["claim_id", "reason", "requested_info", "rationale"],
+    additionalProperties: false,
+  },
+};
+
+const claimFlagDataIssueTool = {
+  name: "claim_flag_data_issue",
+  description: "Record an open data-quality issue against an insurance claim without changing its status.",
+  inputSchema: {
+    type: "object",
+    properties: { claimId: { type: "string" }, reason: { type: "string", minLength: 1 } },
+    required: ["claimId", "reason"],
+    additionalProperties: false,
+  },
+};
+
 const batchPlaceOnHoldTool = {
   name: "batch_place_on_hold",
   description: "Place a fermenting or conditioning batch on hold immediately for a confirmed contamination or safety stop.",
@@ -183,7 +216,7 @@ const proposeBatchDeferStartTool = {
   },
 };
 
-const tools = [tool, getObjectTool, batchDeferStartTool, batchFlagTool, batchPlaceOnHoldTool, proposeBatchExtendRestTool, proposeBatchScheduleEarlyTransferTool, proposalApproveTool, proposalRejectTool, proposalEscalateTool, tankScheduleMaintenanceTool, proposeBatchCancelTool, proposeBatchDeferStartTool];
+const tools = [tool, getObjectTool, claimAutoApproveTool, proposeClaimRequestMoreInfoTool, claimFlagDataIssueTool, batchDeferStartTool, batchFlagTool, batchPlaceOnHoldTool, proposeBatchExtendRestTool, proposeBatchScheduleEarlyTransferTool, proposalApproveTool, proposalRejectTool, proposalEscalateTool, tankScheduleMaintenanceTool, proposeBatchCancelTool, proposeBatchDeferStartTool];
 
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 
@@ -207,6 +240,40 @@ for await (const line of input) {
         ? await queryObjects(request.params.arguments as QueryObjectsInput)
         : request.params.name === getObjectTool.name
           ? await getObject(request.params.arguments as GetObjectInput)
+          : request.params.name === claimAutoApproveTool.name
+            ? await invokeAction({
+                type: "claim",
+                id: (request.params.arguments as { claimId: string }).claimId,
+                action: "autoApprove",
+                params: {
+                  reason: (request.params.arguments as { reason: string }).reason,
+                  citedClauseIds: (request.params.arguments as { citedClauseIds: string[] }).citedClauseIds,
+                  approvedAmount: (request.params.arguments as { approvedAmount: number }).approvedAmount,
+                },
+              })
+            : request.params.name === proposeClaimRequestMoreInfoTool.name
+              ? String((await createObject({
+                  type: "proposal",
+                  properties: {
+                    type: "claim.requestMoreInfo",
+                    targetId: (request.params.arguments as { claim_id: string }).claim_id,
+                    params: {
+                      reason: (request.params.arguments as { reason: string }).reason,
+                      requestedInfo: (request.params.arguments as { requested_info: string }).requested_info,
+                    },
+                    rationale: (request.params.arguments as { rationale: string }).rationale,
+                    status: "pending",
+                    proposedBy: "claims-review-agent",
+                    proposedAt: new Date(process.env.COURSE_NOW ?? Date.now()).toISOString(),
+                  },
+                } as CreateObjectInput)).id)
+              : request.params.name === claimFlagDataIssueTool.name
+                ? await invokeAction({
+                    type: "claim",
+                    id: (request.params.arguments as { claimId: string }).claimId,
+                    action: "flagDataIssue",
+                    params: { reason: (request.params.arguments as { reason: string }).reason },
+                  })
           : request.params.name === batchDeferStartTool.name
           ? await invokeAction({
                 type: "batch",

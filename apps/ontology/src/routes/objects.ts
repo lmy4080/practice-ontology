@@ -26,6 +26,16 @@ function isArrayCardinality(cardinality: string) {
   return cardinality === "one_to_many" || cardinality === "many_to_many";
 }
 
+async function insertDynamicRow(schema: string, table: string, values: Record<string, unknown>) {
+  const columns = Object.keys(values).map((column) => sql.id(column));
+  const result = await sql<Record<string, unknown>>`
+    insert into ${sql.id(schema, table)} (${sql.join(columns)})
+    values (${sql.join(Object.values(values))})
+    returning *
+  `.execute(db);
+  return result.rows[0];
+}
+
 async function objectType(type: string) {
   return db
     .withSchema(ACTIVE_ONTOLOGY_SCHEMA)
@@ -91,12 +101,9 @@ objectRoutes.post("/:type", async (c) => {
   }
 
   try {
-    return c.json(await db
-      .withSchema(type.schema)
-      .insertInto(tableId(type.schema, type.datasource_table))
-      .values(values as never)
-      .returningAll()
-      .executeTakeFirstOrThrow());
+    const created = await insertDynamicRow(type.schema, type.datasource_table, values);
+    if (!created) return c.json({ error: "Failed to create object" }, 400);
+    return c.json(created);
   } catch (error) {
     return c.json({ error: error instanceof Error ? error.message : "Failed to create object" }, 400);
   }

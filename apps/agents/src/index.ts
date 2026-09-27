@@ -21,5 +21,13 @@ export {
   proposalEscalateTool,
   proposal_escalate,
 } from "./tools/manufacturing/index.ts";
+export {
+  claimAutoApproveTool,
+  claim_auto_approve,
+  proposeClaimRequestMoreInfoTool,
+  propose_claim_request_more_info,
+  claimFlagDataIssueTool,
+  claim_flag_data_issue,
+} from "./tools/insurance/index.ts";
 export { buildSchemaBlock } from "./helpers/buildSchemaBlock.ts";
 export { runAgent, type OntologyTool, type RunAgentInput, type RunAgentOptions } from "./run-agent.ts";
