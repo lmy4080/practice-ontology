@@ -24,7 +24,7 @@ export type RunAgentOptions = {
   sandboxMode?: "read-only" | "workspace-write" | "danger-full-access";
 };
 
-export type OntologyTool = "query_objects" | "get_object" | "batch_defer_start" | "tank_schedule_maintenance" | "propose_batch_cancel" | "propose_batch_defer_start";
+export type OntologyTool = "query_objects" | "get_object" | "batch_defer_start" | "batch_flag" | "tank_schedule_maintenance" | "propose_batch_cancel" | "propose_batch_defer_start";
 
 export type RunAgentInput = {
   identity: string;
@@ -209,6 +209,7 @@ export async function runAgent({ identity, prompt, tools, systemPrompt, options 
             enabled: true,
             enabled_tools: tools,
             tools: Object.fromEntries(tools.map((tool) => [tool, { approval_mode: "approve" }])),
+            env: { CALLER_IDENTITY: identity },
             command: process.execPath,
             args: ["--experimental-strip-types", mcpServer],
           },

@@ -56,6 +56,21 @@ const batchDeferStartTool = {
   },
 };
 
+const batchFlagTool = {
+  name: "batch_flag",
+  description: "Record a supported fermentation-health concern without changing the batch status.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      batchId: { type: "string" },
+      reason: { type: "string", minLength: 1 },
+      severity: { type: "string", enum: ["low", "medium", "high"] },
+    },
+    required: ["batchId", "reason", "severity"],
+    additionalProperties: false,
+  },
+};
+
 const tankScheduleMaintenanceTool = {
   name: "tank_schedule_maintenance",
   description: "Schedule maintenance and take the tank offline.",
@@ -102,7 +117,7 @@ const proposeBatchDeferStartTool = {
   },
 };
 
-const tools = [tool, getObjectTool, batchDeferStartTool, tankScheduleMaintenanceTool, proposeBatchCancelTool, proposeBatchDeferStartTool];
+const tools = [tool, getObjectTool, batchDeferStartTool, batchFlagTool, tankScheduleMaintenanceTool, proposeBatchCancelTool, proposeBatchDeferStartTool];
 
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 
@@ -127,12 +142,22 @@ for await (const line of input) {
         : request.params.name === getObjectTool.name
           ? await getObject(request.params.arguments as GetObjectInput)
           : request.params.name === batchDeferStartTool.name
-            ? await invokeAction({
+          ? await invokeAction({
                 type: "batch",
                 id: (request.params.arguments as { batchId: string }).batchId,
                 action: "deferStart",
                 params: { newPlannedStart: (request.params.arguments as { newPlannedStart: string }).newPlannedStart },
               })
+            : request.params.name === batchFlagTool.name
+              ? await invokeAction({
+                  type: "batch",
+                  id: (request.params.arguments as { batchId: string }).batchId,
+                  action: "flag",
+                  params: {
+                    reason: (request.params.arguments as { reason: string }).reason,
+                    severity: (request.params.arguments as { severity: string }).severity,
+                  },
+                })
             : request.params.name === proposeBatchCancelTool.name
               ? String((await createObject({
                   type: "proposal",
