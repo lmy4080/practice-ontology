@@ -70,7 +70,11 @@ function ProposalQueueWorkspace({ onSwitch, onExplorer, onInvestigation }: { onS
   async function loadProposals() {
     setLoading(true);
     try {
-      setProposals(await json<Proposal[]>("/api/objects/proposal?status=pending"));
+      const [pending, escalated] = await Promise.all([
+        json<Proposal[]>("/api/objects/proposal?status=pending"),
+        json<Proposal[]>("/api/objects/proposal?status=escalated"),
+      ]);
+      setProposals([...pending, ...escalated]);
       setError("");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to load proposals");
@@ -81,7 +85,7 @@ function ProposalQueueWorkspace({ onSwitch, onExplorer, onInvestigation }: { onS
 
   useEffect(() => { void loadProposals(); }, []);
 
-  async function decide(proposal: Proposal, action: "approve" | "reject") {
+  async function decide(proposal: Proposal, action: "approve" | "reject" | "escalate") {
     const id = String(proposal.id);
     setBusyId(id);
     setRowErrors((current) => ({ ...current, [id]: "" }));
@@ -89,7 +93,7 @@ function ProposalQueueWorkspace({ onSwitch, onExplorer, onInvestigation }: { onS
       await json(`/api/objects/proposal/${encodeURIComponent(id)}/actions/${action}`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-caller-identity": "brewmaster-lee" },
-        body: "{}",
+        body: action === "escalate" ? JSON.stringify({ note: "Needs additional human verification." }) : "{}",
       });
       await loadProposals();
     } catch (reason) {
@@ -99,7 +103,13 @@ function ProposalQueueWorkspace({ onSwitch, onExplorer, onInvestigation }: { onS
     }
   }
 
-  return <div className="app-shell proposal-shell"><aside className="primary-rail"><div className="brand-mark"><Icon icon="database" size={18} /></div><nav><button className="rail-item" onClick={onSwitch}><Icon icon="database" /><span>Ontology Manager</span></button><button className="rail-item active"><Icon icon="inbox" /><span>Proposals Queue</span></button><button className="rail-item" onClick={onExplorer}><Icon icon="search-template" /><span>Object Explorer</span></button><button className="rail-item" onClick={onInvestigation}><Icon icon="chart" /><span>Insights</span></button></nav><button className="rail-item rail-bottom"><Icon icon="cog" /><span>Settings</span></button></aside><main className="main-content"><header className="topbar"><div className="breadcrumbs"><span>Ontology</span><Icon icon="chevron-right" size={12} /><strong>Proposals Queue</strong></div><div className="top-actions"><Button minimal icon="help" /><Button minimal icon="notifications" /><span className="avatar">MO</span></div></header>{error && <div className="error-banner"><Icon icon="error" /> {error}</div>}<div className="proposal-page"><section className="proposal-heading"><div><span className="eyebrow">HUMAN REVIEW</span><h1>Proposals Queue</h1><p>Review agent-proposed manufacturing actions before they are executed.</p></div><Button icon="refresh" minimal onClick={() => void loadProposals()} /></section><section className="panel proposal-table-panel"><div className="table-toolbar"><strong>Pending proposals</strong><span>{proposals.length} awaiting review</span></div>{loading ? <div className="loading"><Spinner size={24} /><span>Loading proposals…</span></div> : proposals.length ? <div className="proposal-table-wrap"><table className="proposal-table"><thead><tr><th>Type</th><th>Target</th><th>Proposed By</th><th>Proposed At</th><th>Rationale</th><th>Parameters</th><th>Status</th><th>Review</th></tr></thead><tbody>{proposals.map((proposal) => { const id = String(proposal.id); return <tr key={id}><td><code>{proposal.type ?? "—"}</code></td><td><strong>{proposal.target_id ?? "—"}</strong></td><td>{proposal.proposed_by ?? "—"}</td><td>{formatDate(proposal.proposed_at)}</td><td className="proposal-rationale">{proposal.rationale ?? "—"}</td><td><pre className="proposal-params">{JSON.stringify(proposal.params ?? {}, null, 2)}</pre></td><td><Tag minimal intent="warning">{proposal.status ?? "pending"}</Tag></td><td className="proposal-review"><div><Button small intent="success" text="Approve" loading={busyId === id} disabled={busyId !== null} onClick={() => void decide(proposal, "approve")} /><Button small intent="danger" text="Reject" loading={busyId === id} disabled={busyId !== null} onClick={() => void decide(proposal, "reject")} /></div>{rowErrors[id] && <div className="proposal-error">{rowErrors[id]}</div>}</td></tr>; })}</tbody></table></div> : <EmptyState text="No pending proposals" />}</section></div></main></div>;
+  const pending = proposals.filter((proposal) => proposal.status === "pending");
+  const escalated = proposals.filter((proposal) => proposal.status === "escalated");
+  return <div className="app-shell proposal-shell"><aside className="primary-rail"><div className="brand-mark"><Icon icon="database" size={18} /></div><nav><button className="rail-item" onClick={onSwitch}><Icon icon="database" /><span>Ontology Manager</span></button><button className="rail-item active"><Icon icon="inbox" /><span>Proposals Queue</span></button><button className="rail-item" onClick={onExplorer}><Icon icon="search-template" /><span>Object Explorer</span></button><button className="rail-item" onClick={onInvestigation}><Icon icon="chart" /><span>Insights</span></button></nav><button className="rail-item rail-bottom"><Icon icon="cog" /><span>Settings</span></button></aside><main className="main-content"><header className="topbar"><div className="breadcrumbs"><span>Ontology</span><Icon icon="chevron-right" size={12} /><strong>Proposals Queue</strong></div><div className="top-actions"><Button minimal icon="help" /><Button minimal icon="notifications" /><span className="avatar">MO</span></div></header>{error && <div className="error-banner"><Icon icon="error" /> {error}</div>}<div className="proposal-page"><section className="proposal-heading"><div><span className="eyebrow">HUMAN REVIEW</span><h1>Proposals Queue</h1><p>Review agent-proposed manufacturing actions before they are executed.</p></div><Button icon="refresh" minimal onClick={() => void loadProposals()} /></section>{loading ? <div className="loading"><Spinner size={24} /><span>Loading proposals…</span></div> : <><ProposalLane title="Pending proposals" proposals={pending} emptyText="No pending proposals" onDecide={decide} busyId={busyId} rowErrors={rowErrors} /><ProposalLane title="Escalated proposals" proposals={escalated} emptyText="No escalated proposals" onDecide={decide} busyId={busyId} rowErrors={rowErrors} /></>}</div></main></div>;
+}
+
+function ProposalLane({ title, proposals, emptyText, onDecide, busyId, rowErrors }: { title: string; proposals: Proposal[]; emptyText: string; onDecide: (proposal: Proposal, action: "approve" | "reject" | "escalate") => Promise<void>; busyId: string | null; rowErrors: Record<string, string> }) {
+  return <section className="panel proposal-table-panel proposal-lane"><div className="table-toolbar"><strong>{title}</strong><span>{proposals.length} awaiting review</span></div>{proposals.length ? <div className="proposal-table-wrap"><table className="proposal-table"><thead><tr><th>Type</th><th>Target</th><th>Proposed By</th><th>Proposed At</th><th>Rationale</th><th>Parameters</th><th>Status</th><th>Review</th></tr></thead><tbody>{proposals.map((proposal) => { const id = String(proposal.id); const escalated = proposal.status === "escalated"; return <tr key={id}><td><code>{proposal.type ?? "—"}</code></td><td><strong>{proposal.target_id ?? "—"}</strong></td><td>{proposal.proposed_by ?? "—"}</td><td>{formatDate(proposal.proposed_at)}</td><td className="proposal-rationale">{proposal.rationale ?? "—"}</td><td><pre className="proposal-params">{JSON.stringify(proposal.params ?? {}, null, 2)}</pre></td><td><Tag minimal intent={escalated ? "danger" : "warning"}>{proposal.status ?? "pending"}</Tag></td><td className="proposal-review"><div>{!escalated && <Button small intent="warning" text="Escalate" loading={busyId === id} disabled={busyId !== null} onClick={() => void onDecide(proposal, "escalate")} />}<Button small intent="success" text="Approve" loading={busyId === id} disabled={busyId !== null} onClick={() => void onDecide(proposal, "approve")} /><Button small intent="danger" text="Reject" loading={busyId === id} disabled={busyId !== null} onClick={() => void onDecide(proposal, "reject")} /></div>{rowErrors[id] && <div className="proposal-error">{rowErrors[id]}</div>}</td></tr>; })}</tbody></table></div> : <EmptyState text={emptyText} />}</section>;
 }
 
 function PanelHeader({ icon, title, count }: { icon: IconName; title: string; count: number }) { return <div className="panel-header"><div><Icon icon={icon} size={18} /><h3>{title}</h3><span className="count-badge">{count}</span></div><Button minimal icon="plus" text="New" /></div>; }
