@@ -1,11 +1,9 @@
 import { Hono } from "hono";
 
-import { db } from "../db.ts";
-
-const INSTANCE_SCHEMAS = new Set(["manufacturing"]);
+import { ACTIVE_ONTOLOGY_SCHEMA, db, INSTANCE_SCHEMAS } from "../db.ts";
 
 function schemaFor(c: { req: { query: (key: string) => string | undefined } }) {
-  const schema = c.req.query("schema") ?? "manufacturing";
+  const schema = c.req.query("schema") ?? ACTIVE_ONTOLOGY_SCHEMA;
   return INSTANCE_SCHEMAS.has(schema) ? schema : undefined;
 }
 

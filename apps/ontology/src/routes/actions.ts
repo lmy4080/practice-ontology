@@ -1,24 +1,20 @@
 import { Validator, type Schema } from "@cfworker/json-schema";
 import { Hono } from "hono";
+import { sql } from "kysely";
 
 import { type ActionContext } from "../actions/manufacturing/batchDeferStart.ts";
 import { actionHandlers } from "../schema.ts";
-import { db, type Database } from "../db.ts";
+import { ACTIVE_ONTOLOGY_SCHEMA, db, INSTANCE_SCHEMAS } from "../db.ts";
 
-const INSTANCE_SCHEMAS = new Set(["manufacturing"]);
 const SAFE_IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
 
 type ActionHandler = (instance: unknown, params: unknown | undefined, context: ActionContext) => Promise<unknown>;
-
-function tableKey(schema: string, table: string) {
-  return `${schema}.${table}` as keyof Database;
-}
 
 export const actionRoutes = new Hono();
 
 actionRoutes.post("/:type/:id/actions/:actionName", async (c) => {
   const type = await db
-    .withSchema("manufacturing")
+    .withSchema(ACTIVE_ONTOLOGY_SCHEMA)
     .selectFrom("object_type")
     .selectAll()
     .where("api_name", "=", c.req.param("type"))
@@ -53,9 +49,10 @@ actionRoutes.post("/:type/:id/actions/:actionName", async (c) => {
   if (!validation.valid) return c.json({ error: "Invalid action parameters", details: validation.errors }, 400);
 
   const instance = await db
-    .selectFrom(tableKey(type.schema, type.datasource_table))
+    .withSchema(type.schema)
+    .selectFrom(sql.id(type.schema, type.datasource_table))
     .selectAll()
-    .where("id" as never, "=", c.req.param("id"))
+    .where(sql.id("id"), "=", c.req.param("id"))
     .executeTakeFirst();
   if (!instance) return c.json({ error: "Object not found" }, 404);
 

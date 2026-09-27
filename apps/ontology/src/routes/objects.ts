@@ -1,8 +1,8 @@
 import { Hono } from "hono";
+import { sql } from "kysely";
 
-import { db, type Database } from "../db.ts";
+import { ACTIVE_ONTOLOGY_SCHEMA, db, INSTANCE_SCHEMAS } from "../db.ts";
 
-const INSTANCE_SCHEMAS = new Set(["manufacturing"]);
 const SAFE_IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
 
 function validTable(schema: string, table: string) {
@@ -18,8 +18,8 @@ function validCreateValue(dataType: string, value: unknown) {
   return true;
 }
 
-function tableKey(schema: string, table: string) {
-  return `${schema}.${table}` as keyof Database;
+function tableId(schema: string, table: string) {
+  return sql.id(schema, table);
 }
 
 function isArrayCardinality(cardinality: string) {
@@ -28,7 +28,7 @@ function isArrayCardinality(cardinality: string) {
 
 async function objectType(type: string) {
   return db
-    .withSchema("manufacturing")
+    .withSchema(ACTIVE_ONTOLOGY_SCHEMA)
     .selectFrom("object_type")
     .selectAll()
     .where("api_name", "=", type)
@@ -36,23 +36,23 @@ async function objectType(type: string) {
 }
 
 async function propertiesFor(typeId: string) {
-  return db.withSchema("manufacturing").selectFrom("property").selectAll().where("object_type_id", "=", typeId).execute();
+  return db.withSchema(ACTIVE_ONTOLOGY_SCHEMA).selectFrom("property").selectAll().where("object_type_id", "=", typeId).execute();
 }
 
 async function linksFor(where: "source_type_id" | "target_type_id", typeId: string) {
-  return db.withSchema("manufacturing").selectFrom("link").selectAll().where(where, "=", typeId).execute();
+  return db.withSchema(ACTIVE_ONTOLOGY_SCHEMA).selectFrom("link").selectAll().where(where, "=", typeId).execute();
 }
 
 async function metadataType(id: string) {
-  return db.withSchema("manufacturing").selectFrom("object_type").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
+  return db.withSchema(ACTIVE_ONTOLOGY_SCHEMA).selectFrom("object_type").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
 }
 
 async function property(id: string) {
-  return db.withSchema("manufacturing").selectFrom("property").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
+  return db.withSchema(ACTIVE_ONTOLOGY_SCHEMA).selectFrom("property").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
 }
 
 async function readTable(schema: string, table: string, id?: string) {
-  const query = db.selectFrom(tableKey(schema, table));
+  const query = db.withSchema(schema).selectFrom(tableId(schema, table));
   return id === undefined
     ? query.selectAll().execute()
     : query.selectAll().where("id" as never, "=", id).executeTakeFirst();
@@ -92,7 +92,8 @@ objectRoutes.post("/:type", async (c) => {
 
   try {
     return c.json(await db
-      .insertInto(tableKey(type.schema, type.datasource_table))
+      .withSchema(type.schema)
+      .insertInto(tableId(type.schema, type.datasource_table))
       .values(values as never)
       .returningAll()
       .executeTakeFirstOrThrow());
@@ -121,14 +122,14 @@ objectRoutes.post("/:type/query", async (c) => {
     return c.json({ error: "limit must be an integer between 1 and 1000" }, 400);
   }
 
-  let query = db.selectFrom(tableKey(type.schema, type.datasource_table));
+  let query = db.withSchema(type.schema).selectFrom(tableId(type.schema, type.datasource_table));
   for (const filter of filters) {
     if (!filter || typeof filter !== "object") return c.json({ error: "Each filter must be an object" }, 400);
     const { property, op, value } = filter as { property?: unknown; op?: unknown; value?: unknown };
     const metadata = properties.find((candidate) => candidate.api_name === property);
     if (!metadata || !SAFE_IDENTIFIER.test(metadata.datasource_column)) return c.json({ error: `Unknown filter property: ${String(property)}` }, 400);
     if (typeof op !== "string" || !QUERY_OPS.has(op)) return c.json({ error: `Unknown filter operator: ${String(op)}` }, 400);
-    const column = metadata.datasource_column as never;
+    const column = sql.id(metadata.datasource_column);
     if (op === "isNull") query = query.where(column, "is", null) as typeof query;
     else if (op === "isNotNull") query = query.where(column, "is not", null) as typeof query;
     else if (op === "in") {
@@ -151,7 +152,7 @@ objectRoutes.get("/:type/:id/audit", async (c) => {
   if (!type) return c.json({ error: "Unknown object type" }, 404);
 
   const entries = await db
-    .withSchema("manufacturing")
+    .withSchema(ACTIVE_ONTOLOGY_SCHEMA)
     .selectFrom("audit_log")
     .innerJoin("action_type", "action_type.id", "audit_log.action_type_id")
     .select([
@@ -174,11 +175,11 @@ objectRoutes.get("/:type", async (c) => {
   if (!type || !validTable(type.schema, type.datasource_table)) return c.json({ error: "Unknown object type" }, 404);
 
   const properties = await propertiesFor(type.id);
-  let query = db.selectFrom(tableKey(type.schema, type.datasource_table));
+  let query = db.withSchema(type.schema).selectFrom(tableId(type.schema, type.datasource_table));
   for (const [apiName, value] of Object.entries(c.req.query())) {
     const prop = properties.find((candidate) => candidate.api_name === apiName);
     if (!prop || !SAFE_IDENTIFIER.test(prop.datasource_column)) return c.json({ error: `Unknown filter: ${apiName}` }, 400);
-    query = query.where(prop.datasource_column as never, "=", value) as typeof query;
+    query = query.where(sql.id(prop.datasource_column), "=", value) as typeof query;
   }
 
   return c.json(await query.selectAll().execute());
@@ -215,9 +216,10 @@ objectRoutes.get("/:type/:id", async (c) => {
     const via = await property(link.via_property_id);
     if (!validTable(sourceType.schema, sourceType.datasource_table) || !SAFE_IDENTIFIER.test(via.datasource_column)) continue;
     const sources = await db
-      .selectFrom(tableKey(sourceType.schema, sourceType.datasource_table))
+      .withSchema(sourceType.schema)
+      .selectFrom(tableId(sourceType.schema, sourceType.datasource_table))
       .selectAll()
-      .where(via.datasource_column as never, "=", c.req.param("id"))
+      .where(sql.id(via.datasource_column), "=", c.req.param("id"))
       .execute();
     links[link.inverse_api_name] = link.cardinality === "one_to_one" ? sources[0] ?? null : sources;
   }
