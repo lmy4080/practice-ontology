@@ -24,7 +24,7 @@ export type RunAgentOptions = {
   sandboxMode?: "read-only" | "workspace-write" | "danger-full-access";
 };
 
-export type OntologyTool = "query_objects" | "get_object" | "batch_defer_start" | "batch_flag" | "tank_schedule_maintenance" | "propose_batch_cancel" | "propose_batch_defer_start";
+export type OntologyTool = "query_objects" | "get_object" | "batch_defer_start" | "batch_flag" | "batch_place_on_hold" | "propose_batch_extend_rest" | "propose_batch_schedule_early_transfer" | "proposal_approve" | "proposal_reject" | "proposal_escalate" | "tank_schedule_maintenance" | "propose_batch_cancel" | "propose_batch_defer_start";
 
 export type RunAgentInput = {
   identity: string;

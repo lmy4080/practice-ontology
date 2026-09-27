@@ -71,6 +71,72 @@ const batchFlagTool = {
   },
 };
 
+const batchPlaceOnHoldTool = {
+  name: "batch_place_on_hold",
+  description: "Place a fermenting or conditioning batch on hold immediately for a confirmed contamination or safety stop.",
+  inputSchema: {
+    type: "object",
+    properties: { batchId: { type: "string" }, reason: { type: "string", minLength: 1 } },
+    required: ["batchId", "reason"],
+    additionalProperties: false,
+  },
+};
+
+const proposeBatchExtendRestTool = {
+  name: "propose_batch_extend_rest",
+  description: "Create a human-review Proposal to extend rest when more time is safer than moving a batch early.",
+  inputSchema: {
+    type: "object",
+    properties: { batch_id: { type: "string" }, additional_days: { type: "number" }, rationale: { type: "string" } },
+    required: ["batch_id", "additional_days", "rationale"],
+    additionalProperties: false,
+  },
+};
+
+const proposeBatchScheduleEarlyTransferTool = {
+  name: "propose_batch_schedule_early_transfer",
+  description: "Create a human-review Proposal to move a batch toward the next stage earlier when staying in current conditions is the risk; vessel availability is verified separately.",
+  inputSchema: {
+    type: "object",
+    properties: { batch_id: { type: "string" }, planned_at: { type: "string", format: "date-time" }, rationale: { type: "string" } },
+    required: ["batch_id", "planned_at", "rationale"],
+    additionalProperties: false,
+  },
+};
+
+const proposalApproveTool = {
+  name: "proposal_approve",
+  description: "Approve a sound Proposal and execute its underlying action.",
+  inputSchema: {
+    type: "object",
+    properties: { proposal_id: { type: "string" }, decision_note: { type: "string" } },
+    required: ["proposal_id"],
+    additionalProperties: false,
+  },
+};
+
+const proposalRejectTool = {
+  name: "proposal_reject",
+  description: "Reject a Proposal whose rationale or proposed action is not supported by the evidence.",
+  inputSchema: {
+    type: "object",
+    properties: { proposal_id: { type: "string" }, decision_note: { type: "string" } },
+    required: ["proposal_id"],
+    additionalProperties: false,
+  },
+};
+
+const proposalEscalateTool = {
+  name: "proposal_escalate",
+  description: "Escalate a Proposal with a concise note when material assumptions or evidence gaps require human review.",
+  inputSchema: {
+    type: "object",
+    properties: { proposal_id: { type: "string" }, note: { type: "string", minLength: 1 } },
+    required: ["proposal_id", "note"],
+    additionalProperties: false,
+  },
+};
+
 const tankScheduleMaintenanceTool = {
   name: "tank_schedule_maintenance",
   description: "Schedule maintenance and take the tank offline.",
@@ -117,7 +183,7 @@ const proposeBatchDeferStartTool = {
   },
 };
 
-const tools = [tool, getObjectTool, batchDeferStartTool, batchFlagTool, tankScheduleMaintenanceTool, proposeBatchCancelTool, proposeBatchDeferStartTool];
+const tools = [tool, getObjectTool, batchDeferStartTool, batchFlagTool, batchPlaceOnHoldTool, proposeBatchExtendRestTool, proposeBatchScheduleEarlyTransferTool, proposalApproveTool, proposalRejectTool, proposalEscalateTool, tankScheduleMaintenanceTool, proposeBatchCancelTool, proposeBatchDeferStartTool];
 
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 
@@ -158,6 +224,64 @@ for await (const line of input) {
                     severity: (request.params.arguments as { severity: string }).severity,
                   },
                 })
+            : request.params.name === batchPlaceOnHoldTool.name
+              ? await invokeAction({
+                  type: "batch",
+                  id: (request.params.arguments as { batchId: string }).batchId,
+                  action: "placeOnHold",
+                  params: { reason: (request.params.arguments as { reason: string }).reason },
+                })
+            : request.params.name === proposeBatchExtendRestTool.name
+              ? String((await createObject({
+                  type: "proposal",
+                  properties: {
+                    type: "batch.extendRest",
+                    targetId: (request.params.arguments as { batch_id: string }).batch_id,
+                    params: { additionalDays: (request.params.arguments as { additional_days: number }).additional_days },
+                    rationale: (request.params.arguments as { rationale: string }).rationale,
+                    status: "pending",
+                    proposedBy: "planning-agent",
+                    proposedAt: new Date(process.env.COURSE_NOW ?? Date.now()).toISOString(),
+                  },
+                } as CreateObjectInput)).id)
+              : request.params.name === proposeBatchScheduleEarlyTransferTool.name
+                ? String((await createObject({
+                    type: "proposal",
+                    properties: {
+                      type: "batch.scheduleEarlyTransfer",
+                      targetId: (request.params.arguments as { batch_id: string }).batch_id,
+                      params: { plannedAt: (request.params.arguments as { planned_at: string }).planned_at },
+                      rationale: (request.params.arguments as { rationale: string }).rationale,
+                      status: "pending",
+                      proposedBy: "planning-agent",
+                      proposedAt: new Date(process.env.COURSE_NOW ?? Date.now()).toISOString(),
+                    },
+                  } as CreateObjectInput)).id)
+                : request.params.name === proposalApproveTool.name
+                  ? await invokeAction({
+                      type: "proposal",
+                      id: (request.params.arguments as { proposal_id: string }).proposal_id,
+                      action: "approve",
+                      params: (request.params.arguments as { decision_note?: string }).decision_note
+                        ? { decisionNote: (request.params.arguments as { decision_note: string }).decision_note }
+                        : {},
+                    })
+                : request.params.name === proposalRejectTool.name
+                  ? await invokeAction({
+                      type: "proposal",
+                      id: (request.params.arguments as { proposal_id: string }).proposal_id,
+                      action: "reject",
+                      params: (request.params.arguments as { decision_note?: string }).decision_note
+                        ? { decisionNote: (request.params.arguments as { decision_note: string }).decision_note }
+                        : {},
+                    })
+                : request.params.name === proposalEscalateTool.name
+                  ? await invokeAction({
+                      type: "proposal",
+                      id: (request.params.arguments as { proposal_id: string }).proposal_id,
+                      action: "escalate",
+                      params: { note: (request.params.arguments as { note: string }).note },
+                    })
             : request.params.name === proposeBatchCancelTool.name
               ? String((await createObject({
                   type: "proposal",
