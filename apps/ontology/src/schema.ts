@@ -7,6 +7,9 @@ import { batchPlaceOnHold } from "./actions/manufacturing/batchPlaceOnHold.ts";
 import { batchExtendRest } from "./actions/manufacturing/batchExtendRest.ts";
 import { batchScheduleEarlyTransfer } from "./actions/manufacturing/batchScheduleEarlyTransfer.ts";
 import { proposalApprove, proposalReject, proposalEscalate } from "./actions/shared/proposal.ts";
+import { claimAutoApprove } from "./actions/insurance/claimAutoApprove.ts";
+import { claimRequestMoreInfo } from "./actions/insurance/claimRequestMoreInfo.ts";
+import { claimFlagDataIssue } from "./actions/insurance/claimFlagDataIssue.ts";
 import type { Database } from "./db.ts";
 
 export type ActionHandler = (instance: unknown, params: unknown | undefined, context: ActionContext) => Promise<unknown>;
@@ -32,4 +35,10 @@ export const actionHandlers: Record<string, ActionHandler> = {
     proposalReject(instance as Database["manufacturing.proposal"], params as { decisionNote?: string }, context),
   "proposal.escalate": (instance, params, context) =>
     proposalEscalate(instance as Database["manufacturing.proposal"], params as { note: string }, context),
+  "claim.autoApprove": (instance, params, context) =>
+    claimAutoApprove(instance as Database["insurance.claim"], params as { reason: string; citedClauseIds: string[]; approvedAmount: number }, context),
+  "claim.requestMoreInfo": (instance, params, context) =>
+    claimRequestMoreInfo(instance as Database["insurance.claim"], params as { reason: string; requestedInfo: string }, context),
+  "claim.flagDataIssue": (instance, params, context) =>
+    claimFlagDataIssue(instance as Database["insurance.claim"], params as { reason: string }, context),
 };
