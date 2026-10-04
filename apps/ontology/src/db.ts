@@ -1,7 +1,7 @@
 import { Kysely, PostgresDialect, type Generated } from "kysely";
 import { Pool } from "pg";
 
-export const ACTIVE_ONTOLOGY_SCHEMA = "insurance" as const;
+export const ACTIVE_ONTOLOGY_SCHEMA = "manufacturing" as const;
 export const INSTANCE_SCHEMAS = new Set([ACTIVE_ONTOLOGY_SCHEMA]);
 
 type Json = unknown;
