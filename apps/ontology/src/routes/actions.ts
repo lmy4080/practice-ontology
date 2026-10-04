@@ -34,6 +34,26 @@ actionRoutes.post("/:type/:id/actions/:actionName", async (c) => {
   const action = actions.find((candidate) => candidate.api_name === actionName || candidate.api_name === `${type.api_name}.${actionName}`);
   if (!action) return c.json({ error: "Unknown action" }, 404);
 
+  const callerIdentity = c.req.header("x-caller-identity") ?? "system";
+  const allowedCallers = action.allowed_callers ?? [];
+  const accessAllowed = allowedCallers.length === 0 || allowedCallers.includes(callerIdentity);
+  const accessReason = accessAllowed
+    ? allowedCallers.length === 0
+      ? "Action is unrestricted"
+      : `Caller ${callerIdentity} is allowed`
+    : `Caller ${callerIdentity} is not allowed for ${action.api_name}`;
+
+  await db.withSchema(type.schema).insertInto("access_log").values({
+    caller_identity: callerIdentity,
+    action_type: action.api_name,
+    target_type: type.api_name,
+    target_id: c.req.param("id"),
+    decision: accessAllowed ? "allowed" : "denied",
+    reason: accessReason,
+  }).execute();
+
+  if (!accessAllowed) return c.json({ error: "Action caller is not authorized", reason: accessReason }, 403);
+
   const shortActionName = action.api_name.split(".").pop() ?? action.api_name;
   const handler = actionHandlers[`${type.api_name}.${shortActionName}`];
   if (!handler) return c.json({ error: "Action is not implemented" }, 501);
@@ -60,7 +80,7 @@ actionRoutes.post("/:type/:id/actions/:actionName", async (c) => {
     const result = await handler(instance, params, {
       db,
       actor: c.req.header("x-actor") ?? "system",
-      callerIdentity: c.req.header("x-caller-identity") ?? c.req.header("x-actor") ?? "system",
+      callerIdentity,
       objectType: type,
       actionType: action,
     });

@@ -50,6 +50,18 @@ export interface ActionTypeTable {
   object_type_id: string;
   description: string | null;
   parameter_schema: Json;
+  allowed_callers: string[] | null;
+}
+
+interface AccessLogTable {
+  id: Generated<string>;
+  caller_identity: string;
+  action_type: string;
+  target_type: string;
+  target_id: string;
+  decision: string;
+  reason: string;
+  timestamp: Date;
 }
 
 interface AuditLogTable {
@@ -220,6 +232,7 @@ export interface Database {
   link: LinkTable;
   action_type: ActionTypeTable;
   audit_log: AuditLogTable;
+  access_log: AccessLogTable;
   "insurance.claim": ClaimTable;
   "insurance.policy": PolicyTable;
   "insurance.coverage_clause": CoverageClauseTable;
